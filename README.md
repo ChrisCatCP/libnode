@@ -11,9 +11,12 @@ The prebuilt binaries are used in [MetaCall Core](https://github.com/metacall/co
 - MacOS x64
 - MacOS ARM64 (M series)
 - Windows x64
+- Windows x64 for Node.js v22.22.3
+- Windows x86 for Node.js v22.22.3
 
 ## TODO:
 
+- Newer Windows x86 versions (Node.js no longer supports 32-bit Windows builds after v22.22.3)
 - Windows ARM64 (The Windows ARM64 support is dependent on solving [https://github.com/nodejs/node/issues/52664](https://github.com/nodejs/node/issues/52664))
 
 ## Usage:
