@@ -17,31 +17,66 @@ jobs:
         arch: [amd64]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check tag branch
+        id: tag_branch
+        shell: pwsh
+        run: |
+          if (-not $env:GITHUB_REF.StartsWith('refs/tags/')) {
+            "matched=true" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          git fetch origin main:refs/remotes/origin/main
+          $tagCommit = git rev-parse "$env:GITHUB_REF^{commit}"
+          git merge-base --is-ancestor $tagCommit origin/main
+          if ($LASTEXITCODE -eq 0) {
+            "matched=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "matched=false" >> $env:GITHUB_OUTPUT
+            Write-Host "Tag commit $tagCommit is not on main; skipping."
+          }
 
       - uses: ilammy/msvc-dev-cmd@v1
+        if: steps.tag_branch.outputs.matched == 'true'
         with:
           arch: ${{ matrix.arch }}
 
       - uses: MinoruSekine/setup-scoop@v3
+        if: steps.tag_branch.outputs.matched == 'true'
         with:
           update_path: true
           run_as_admin: true
           scoop_update: true
 
       - name: Install building tools
+        if: steps.tag_branch.outputs.matched == 'true'
         run: scoop install git nodejs python ninja nasm 7zip
 
       - name: Run the script
+        if: steps.tag_branch.outputs.matched == 'true'
         env:
           ARCH: ${{ matrix.arch }}
         run: node index.js
 
       - name: Create archive
+        if: steps.tag_branch.outputs.matched == 'true'
         run: |
-          cd node\out\Release
-          7z a -mx9 "libnode-${{ matrix.arch }}-windows.zip" libnode.* node.*
+          if (Test-Path package) { Remove-Item -Recurse -Force package }
+          New-Item -ItemType Directory -Force package\lib | Out-Null
+
+          Push-Location node
+          python tools\install.py install --headers-only --dest-dir ..\package --prefix /
+          Pop-Location
+
+          Copy-Item node\out\Release\libnode.* package\lib\
+          Copy-Item node\out\Release\node.* package\
+          7z a -mx9 "node\out\Release\libnode-${{ matrix.arch }}-windows.zip" package\include package\lib package\node.*
 
       - name: Upload binaries to release
+        if: steps.tag_branch.outputs.matched == 'true'
         uses: svenstaro/upload-release-action@v2
         with:
           overwrite: true

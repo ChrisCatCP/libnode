@@ -19,6 +19,8 @@ jobs:
       image: ubuntu:devel
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup ccache
         uses: actions/cache@v4
@@ -36,7 +38,25 @@ jobs:
           apt-get update
           apt-get install --yes git nodejs python3 python3-pip gcc g++ make nasm ccache linux-libc-dev linux-libc-dev-arm64-cross binutils-aarch64-linux-gnu gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
+      - name: Check tag branch
+        id: tag_branch
+        run: |
+          if [ "${GITHUB_REF#refs/tags/}" = "$GITHUB_REF" ]; then
+            echo "matched=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git fetch origin main:refs/remotes/origin/main
+          tag_commit="$(git rev-parse "${GITHUB_REF}^{commit}")"
+          if git merge-base --is-ancestor "$tag_commit" origin/main; then
+            echo "matched=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "matched=false" >> "$GITHUB_OUTPUT"
+            echo "Tag commit $tag_commit is not on main; skipping."
+          fi
+
       - name: Run the script
+        if: steps.tag_branch.outputs.matched == 'true'
         env:
           ARCH: ${{ matrix.arch }}
           CC: "${{ matrix.is_arm && 'aarch64-linux-gnu-gcc' || 'gcc' }}"
@@ -57,12 +77,22 @@ jobs:
           node index.js
 
       - name: Create archive
+        if: steps.tag_branch.outputs.matched == 'true'
         run: |
-          cd node/out/Release
-          ln libnode.so.* libnode.so
-          tar -cJf "libnode-${{ matrix.arch }}-linux.tar.xz" libnode.* node
+          rm -rf package
+          mkdir -p package/lib
+
+          cd node
+          python3 tools/install.py install --headers-only --dest-dir ../package --prefix /
+          cd ..
+
+          ln -sf libnode.so.* node/out/Release/libnode.so
+          cp -P node/out/Release/libnode.so* package/lib/
+          cp node/out/Release/node package/
+          tar -C package -cJf "node/out/Release/libnode-${{ matrix.arch }}-linux.tar.xz" include lib node
 
       - name: Upload binaries to release
+        if: steps.tag_branch.outputs.matched == 'true'
         uses: svenstaro/upload-release-action@v2
         with:
           overwrite: true
