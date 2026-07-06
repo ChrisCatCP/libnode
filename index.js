@@ -50,6 +50,37 @@ const spawnAsync = (program, args) =>
     });
   });
 
+const forceWindowsStaticRuntime = async () => {
+  const runtimeCondition = `['node_shared != "true"', {`;
+  const commonGypiPath = "common.gypi";
+  const configurePath = "configure.py";
+
+  let commonGypi = await fs.readFile(commonGypiPath, { encoding: "utf8" });
+  const runtimeConditionCount =
+    commonGypi.split(runtimeCondition).length - 1;
+  if (runtimeConditionCount < 2) {
+    throw new Error(
+      `Could not find expected MSVC runtime conditions in ${commonGypiPath}`
+    );
+  }
+  commonGypi = commonGypi.replaceAll(runtimeCondition, `['1', {`);
+  await fs.writeFile(commonGypiPath, commonGypi);
+
+  let configure = await fs.readFile(configurePath, { encoding: "utf8" });
+  const dynamicCrtAssignment =
+    "o['variables']['force_dynamic_crt'] = 1 if options.shared else 0";
+  if (!configure.includes(dynamicCrtAssignment)) {
+    throw new Error(
+      `Could not find expected force_dynamic_crt assignment in ${configurePath}`
+    );
+  }
+  configure = configure.replace(
+    dynamicCrtAssignment,
+    "o['variables']['force_dynamic_crt'] = 0"
+  );
+  await fs.writeFile(configurePath, configure);
+};
+
 const version =
   process.env.SOURCE_TAG ||
   (process.platform == "win32" && REQUESTED_ARCH == "x86"
@@ -68,6 +99,7 @@ process.chdir("node");
 
 let extraArgs = [];
 if (process.platform == "win32") {
+  await forceWindowsStaticRuntime();
   await spawnAsync(".\\vcbuild.bat", [
     ARCH,
     "dll",
