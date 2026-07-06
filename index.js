@@ -128,6 +128,9 @@ const forceWindowsVs2026 = async () => {
 
   for (const [from, to] of replacements) {
     if (!vcbuild.includes(from)) {
+      if (vcbuild.includes(to)) {
+        continue;
+      }
       throw new Error(
         `Could not find expected VS 2022 marker in ${vcbuildPath}: ${from}`
       );
@@ -140,22 +143,48 @@ const forceWindowsVs2026 = async () => {
   let nodeGypMsvsVersion = await fs.readFile(nodeGypMsvsVersionPath, {
     encoding: "utf8",
   });
-  const nodeGypReplacements = [
-    [
-      '        "2022": VisualStudioVersion(\n            "2022",',
-      '        "2026": VisualStudioVersion(\n            "2026",\n            "Visual Studio 2026",\n            solution_version="12.00",\n            project_version="18.0",\n            path=path,\n            sdk_based=sdk_based,\n            default_toolset="v180",\n            compatible_sdks=["v8.1", "v10.0"],\n        ),\n        "2022": VisualStudioVersion(\n            "2022",',
-    ],
-    ['        "17.0": "2022",', '        "17.0": "2022",\n        "18.0": "2026",'],
-    ['        "2022": ("17.0",),', '        "2022": ("17.0",),\n        "2026": ("18.0",),'],
-  ];
-
-  for (const [from, to] of nodeGypReplacements) {
-    if (!nodeGypMsvsVersion.includes(from)) {
+  const lineEnd = nodeGypMsvsVersion.includes("\r\n") ? "\r\n" : "\n";
+  const addNodeGypSupport = (pattern, replacement) => {
+    if (!pattern.test(nodeGypMsvsVersion)) {
       throw new Error(
-        `Could not find expected VS 2022 marker in ${nodeGypMsvsVersionPath}: ${from}`
+        `Could not find expected VS 2022 marker in ${nodeGypMsvsVersionPath}: ${pattern}`
       );
     }
-    nodeGypMsvsVersion = nodeGypMsvsVersion.replace(from, to);
+    nodeGypMsvsVersion = nodeGypMsvsVersion.replace(pattern, replacement);
+  };
+
+  if (!nodeGypMsvsVersion.includes('"2026": VisualStudioVersion(')) {
+    addNodeGypSupport(
+      /        "2022": VisualStudioVersion\(\r?\n            "2022",/,
+      [
+        '        "2026": VisualStudioVersion(',
+        '            "2026",',
+        '            "Visual Studio 2026",',
+        '            solution_version="12.00",',
+        '            project_version="18.0",',
+        "            path=path,",
+        "            sdk_based=sdk_based,",
+        '            default_toolset="v180",',
+        '            compatible_sdks=["v8.1", "v10.0"],',
+        "        ),",
+        '        "2022": VisualStudioVersion(',
+        '            "2022",',
+      ].join(lineEnd)
+    );
+  }
+
+  if (!nodeGypMsvsVersion.includes('"18.0": "2026"')) {
+    addNodeGypSupport(
+      /        "17\.0": "2022",/,
+      ['        "17.0": "2022",', '        "18.0": "2026",'].join(lineEnd)
+    );
+  }
+
+  if (!nodeGypMsvsVersion.includes('"2026": ("18.0",)')) {
+    addNodeGypSupport(
+      /        "2022": \("17\.0",\),/,
+      ['        "2022": ("17.0",),', '        "2026": ("18.0",),'].join(lineEnd)
+    );
   }
 
   await fs.writeFile(nodeGypMsvsVersionPath, nodeGypMsvsVersion);
