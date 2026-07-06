@@ -39,11 +39,6 @@ jobs:
             Write-Host "Tag commit $tagCommit is not on main; skipping."
           }
 
-      - uses: ilammy/msvc-dev-cmd@v1
-        if: steps.tag_branch.outputs.matched == 'true'
-        with:
-          arch: ${{ matrix.arch }}
-
       - uses: MinoruSekine/setup-scoop@v3
         if: steps.tag_branch.outputs.matched == 'true'
         with:

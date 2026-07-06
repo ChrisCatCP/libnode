@@ -81,6 +81,86 @@ const forceWindowsStaticRuntime = async () => {
   await fs.writeFile(configurePath, configure);
 };
 
+const forceWindowsVs2026 = async () => {
+  const vcbuildPath = "vcbuild.bat";
+  const nodeGypMsvsVersionPath =
+    "deps/npm/node_modules/node-gyp/gyp/pylib/gyp/MSVSVersion.py";
+  let vcbuild = await fs.readFile(vcbuildPath, { encoding: "utf8" });
+  const replacements = [
+    [
+      'if /i "%1"=="vs2022"        set target_env=vs2022&goto arg-ok',
+      'if /i "%1"=="vs2026"        set target_env=vs2026&goto arg-ok',
+    ],
+    [
+      'if "%target_env%"=="vs2022" set "node_gyp_exe=%node_gyp_exe% --msvs_version=2022"',
+      'if "%target_env%"=="vs2026" set "node_gyp_exe=%node_gyp_exe% --msvs_version=2026"',
+    ],
+    ["@rem Look for Visual Studio 2022", "@rem Look for Visual Studio 2026"],
+    [":vs-set-2022", ":vs-set-2026"],
+    [
+      'if defined target_env if "%target_env%" NEQ "vs2022" goto msbuild-not-found',
+      'if defined target_env if "%target_env%" NEQ "vs2026" goto msbuild-not-found',
+    ],
+    [
+      "echo Looking for Visual Studio 2022",
+      "echo Looking for Visual Studio 2026",
+    ],
+    [
+      'call tools\\msvs\\vswhere_usability_wrapper.cmd "[17.6,18.0)" %target_arch% "prerelease" %clang_cl%',
+      'call tools\\msvs\\vswhere_usability_wrapper.cmd "[18.0,19.0)" %target_arch% "prerelease" %clang_cl%',
+    ],
+    [
+      'if "_%VCINSTALLDIR%_" == "__" goto msbuild-not-found',
+      'if "_%VCINSTALLDIR%_" == "__" if exist "%ProgramFiles(x86)%\\Microsoft Visual Studio\\18\\BuildTools\\VC\\Auxiliary\\Build\\vcvarsall.bat" set "VCINSTALLDIR=%ProgramFiles(x86)%\\Microsoft Visual Studio\\18\\BuildTools\\VC\\"\nif "_%VCINSTALLDIR%_" == "__" goto msbuild-not-found',
+    ],
+    [
+      'if "_%VisualStudioVersion%_" == "_17.0_" if "_%VSCMD_ARG_TGT_ARCH%_"=="_%target_arch%_" goto found_vs2022',
+      'if "_%VisualStudioVersion%_" == "_18.0_" if "_%VSCMD_ARG_TGT_ARCH%_"=="_%target_arch%_" goto found_vs2026',
+    ],
+    [":found_vs2022", ":found_vs2026"],
+    ["set GYP_MSVS_VERSION=2022", "set GYP_MSVS_VERSION=2026"],
+    ["set PLATFORM_TOOLSET=v143", "set PLATFORM_TOOLSET=v180"],
+    [
+      "[vs2022] [download-all]",
+      "[vs2026] [download-all]",
+    ],
+  ];
+
+  for (const [from, to] of replacements) {
+    if (!vcbuild.includes(from)) {
+      throw new Error(
+        `Could not find expected VS 2022 marker in ${vcbuildPath}: ${from}`
+      );
+    }
+    vcbuild = vcbuild.replace(from, to);
+  }
+
+  await fs.writeFile(vcbuildPath, vcbuild);
+
+  let nodeGypMsvsVersion = await fs.readFile(nodeGypMsvsVersionPath, {
+    encoding: "utf8",
+  });
+  const nodeGypReplacements = [
+    [
+      '        "2022": VisualStudioVersion(\n            "2022",',
+      '        "2026": VisualStudioVersion(\n            "2026",\n            "Visual Studio 2026",\n            solution_version="12.00",\n            project_version="18.0",\n            path=path,\n            sdk_based=sdk_based,\n            default_toolset="v180",\n            compatible_sdks=["v8.1", "v10.0"],\n        ),\n        "2022": VisualStudioVersion(\n            "2022",',
+    ],
+    ['        "17.0": "2022",', '        "17.0": "2022",\n        "18.0": "2026",'],
+    ['        "2022": ("17.0",),', '        "2022": ("17.0",),\n        "2026": ("18.0",),'],
+  ];
+
+  for (const [from, to] of nodeGypReplacements) {
+    if (!nodeGypMsvsVersion.includes(from)) {
+      throw new Error(
+        `Could not find expected VS 2022 marker in ${nodeGypMsvsVersionPath}: ${from}`
+      );
+    }
+    nodeGypMsvsVersion = nodeGypMsvsVersion.replace(from, to);
+  }
+
+  await fs.writeFile(nodeGypMsvsVersionPath, nodeGypMsvsVersion);
+};
+
 const version =
   process.env.SOURCE_TAG ||
   (process.platform == "win32" && REQUESTED_ARCH == "x86"
@@ -100,9 +180,11 @@ process.chdir("node");
 let extraArgs = [];
 if (process.platform == "win32") {
   await forceWindowsStaticRuntime();
+  await forceWindowsVs2026();
   await spawnAsync(".\\vcbuild.bat", [
     ARCH,
     "dll",
+    "vs2026",
     "openssl-no-asm",
     "no-cctest",
   ]);
