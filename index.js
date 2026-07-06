@@ -51,20 +51,29 @@ const spawnAsync = (program, args) =>
   });
 
 const forceWindowsStaticRuntime = async () => {
-  const runtimeCondition = `['node_shared != "true"', {`;
   const commonGypiPath = "common.gypi";
   const configurePath = "configure.py";
+  const v8ToolchainPath = "tools/v8_gypfiles/toolchain.gypi";
+  const staticRuntimeReplacements = [
+    [commonGypiPath, "'MSVC_runtimeType': 3", "'MSVC_runtimeType': 1"],
+    [commonGypiPath, "'MSVC_runtimeType': 2", "'MSVC_runtimeType': 0"],
+    [v8ToolchainPath, "'RuntimeLibrary': '3'", "'RuntimeLibrary': '1'"],
+    [v8ToolchainPath, "'RuntimeLibrary': '2'", "'RuntimeLibrary': '0'"],
+  ];
 
-  let commonGypi = await fs.readFile(commonGypiPath, { encoding: "utf8" });
-  const runtimeConditionCount =
-    commonGypi.split(runtimeCondition).length - 1;
-  if (runtimeConditionCount < 2) {
-    throw new Error(
-      `Could not find expected MSVC runtime conditions in ${commonGypiPath}`
-    );
+  for (const [filePath, from, to] of staticRuntimeReplacements) {
+    let content = await fs.readFile(filePath, { encoding: "utf8" });
+    if (!content.includes(from)) {
+      if (content.includes(to)) {
+        continue;
+      }
+      throw new Error(
+        `Could not find expected dynamic CRT marker in ${filePath}: ${from}`
+      );
+    }
+    content = content.replaceAll(from, to);
+    await fs.writeFile(filePath, content);
   }
-  commonGypi = commonGypi.replaceAll(runtimeCondition, `['1', {`);
-  await fs.writeFile(commonGypiPath, commonGypi);
 
   let configure = await fs.readFile(configurePath, { encoding: "utf8" });
   const dynamicCrtAssignment =
